@@ -1,0 +1,30 @@
+{
+	"name": "ezcoo-matrix",
+	"version": "1.0.0",
+	"api_version": "1.0.0",
+	"keywords": [
+		"HDMI Matrix"
+	],
+	"manufacturer": "EZCOO",
+	"product": "MX44-HAS2 4x4 HDMI Matrix",
+	"shortname": "mx44-has2",
+	"description": "Companion module for EZCOO MX44-HAS2 4x4 HDMI Matrix",
+	"main": "index.js",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"format": "prettier --write ."
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bitfocus/companion-module-ezcoo-matrix.git"
+	},
+	"author": "Jan Bubik <jbubik@centrum.cz>",
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/bitfocus/companion-module-ezcoo-matrix/issues"
+	},
+	"homepage": "https://github.com/bitfocus/companion-module-ezcoo-matrix#readme",
+	"devDependencies": {
+		"prettier": "^2.7.1"
+	}
+}
