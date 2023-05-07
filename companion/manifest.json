@@ -1,8 +1,8 @@
 {
 	"id": "ezcoo-matrix",
 	"name": "ezcoo-matrix",
-	"shortname": "mx44-has2",
-	"description": "Companion module for EZCOO MX44-HAS2 4x4 HDMI Matrix",
+	"shortname": "ezcoo-matrix",
+	"description": "Companion module for EZCOO HDMI Matrix",
 	"version": "0.0.0",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-ezcoo-matrix.git",
@@ -21,10 +21,6 @@
 		"entrypoint": "../index.js"
 	},
 	"manufacturer": "EZCOO",
-	"products": [
-		"MX44-HAS2 4x4 HDMI Matrix"
-	],
-	"keywords": [
-		"HDMI Matrix"
-	]
+	"products": ["MX44-HAS2 4x4 HDMI Matrix", "MX42HS 4x2 HDMI Matrix"],
+	"keywords": ["HDMI Matrix"]
 }
