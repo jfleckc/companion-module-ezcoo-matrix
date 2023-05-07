@@ -1,5 +1,9 @@
-Product info [here](https://www.easycoolav.com/products/4k60-444-hdmi-matrix-4x4-dolby-vision-with-audio-breakout-ip-rs232-ir-control-hdcp22-18g-bps).
-The switch has no authentication mechanism, use in private networks only.
+This module is known to work with:
+
+- [MX44HAS2](https://www.easycoolav.com/products/4k60-444-hdmi-matrix-4x4-dolby-vision-with-audio-breakout-ip-rs232-ir-control-hdcp22-18g-bps)
+- [MX42HS](https://www.easycoolav.com/products/hdmi-matrix-4x2-matrix-4-in-2-out-18gbps-mx42hs)
+
+These products have no authentication mechanism, use in private networks only.
 
 ### Configuration
 
