@@ -1,11 +1,12 @@
-// EZCOO MX44-HAS2 HDMI Matrix Switch
+import { InstanceBase, InstanceStatus, TCPHelper, runEntrypoint } from '@companion-module/base'
+import { getActionDefinitions } from './actions.js'
+import { getFeedbackDefinitions } from './feedbacks.js'
+import { getPresetDefinitions } from './presets.js'
+import { getConfigFields } from './config.js'
 
-const tcp = require('../../tcp')
-const instance_skel = require('../../instance_skel')
-
-class instance extends instance_skel {
-	constructor(system, id, config) {
-		super(system, id, config)
+class EzcooMatrixInstance extends InstanceBase {
+	constructor(internal) {
+		super(internal)
 
 		this.CHOICES_INPUTS = [
 			{ id: '1', label: 'IN1' },
@@ -24,71 +25,77 @@ class instance extends instance_skel {
 		this.outputRoute = { 1: 1, 2: 2, 3: 3, 4: 4 }
 	}
 
-	destroy() {
-		if (this.socket !== undefined) {
+	getConfigFields() {
+		return getConfigFields()
+	}
+
+	async destroy() {
+		if (this.socket) {
 			this.socket.destroy()
 			delete this.socket
 		}
 
-		if (this.pollMixerTimer !== undefined) {
+		if (this.pollMixerTimer) {
 			clearInterval(this.pollMixerTimer)
 			delete this.pollMixerTimer
 		}
-
-		this.debug('destroy', this.id)
 	}
 
-	init() {
-		this.updateConfig(this.config)
+	async init(config) {
+		await this.configUpdated(config)
 	}
 
-	updateConfig(config) {
+	async configUpdated(config) {
 		this.config = config
 
-		this.config.polling_interval = this.config.polling_interval !== undefined ? this.config.polling_interval : 60000
-		this.config.port = this.config.port !== undefined ? this.config.port : 23
+		this.config.polling_interval = this.config.polling_interval ?? 60000
+		this.config.port = this.config.port ?? 23
 
-		this.initActions()
-		this.initFeedbacks()
+		this.setActionDefinitions(getActionDefinitions(this))
+		this.setFeedbackDefinitions(getFeedbackDefinitions(this))
+		this.setPresetDefinitions(getPresetDefinitions(this))
 		this.initVariables()
-		this.init_tcp()
+
+		this.initTcpSocket()
 		this.initPolling()
-		this.initPresets()
 	}
 
-	init_tcp() {
-		var backlog = ''
-		if (this.socket !== undefined) {
+	initTcpSocket() {
+		if (this.socket) {
 			this.socket.destroy()
 			delete this.socket
 		}
 
 		if (this.config.host) {
-			this.socket = new tcp(this.config.host, this.config.port, { reconnect_interval: 300000, reconnect: true })
-			this.socket.socket.setNoDelay(false)
-			this.status(this.STATUS_WARNING, 'Connecting')
+			this.socket = new TCPHelper(this.config.host, this.config.port, {
+				reconnect_interval: 10000,
+				reconnect: true,
+			})
+			this.socket._socket.setNoDelay(false)
+
+			this.updateStatus(InstanceStatus.Connecting)
 
 			this.socket.on('status_change', (status, message) => {
-				this.status(status, message)
+				this.updateStatus(status, message)
 			})
 
 			this.socket.on('error', (err) => {
-				this.debug('Network error', err)
 				this.log('error', 'Network error: ' + err.message)
 			})
 
 			this.socket.on('connect', () => {
+				this.log('info', 'Connected')
 				this.sendCommmand('EZG STA') //poll current status once upon connect
-				this.debug('Connected')
 			})
 
+			let receiveBacklog = ''
 			this.socket.on('data', (receivebuffer) => {
-				backlog += receivebuffer
-				var n = backlog.indexOf('\n')
+				receiveBacklog += receivebuffer
+				let n = receiveBacklog.indexOf('\n')
 				while (~n) {
-					this.processResponse(backlog.substring(0, n))
-					backlog = backlog.substring(n + 1)
-					n = backlog.indexOf('\n')
+					this.processResponse(receiveBacklog.substring(0, n))
+					receiveBacklog = receiveBacklog.substring(n + 1)
+					n = receiveBacklog.indexOf('\n')
 				}
 			})
 		}
@@ -96,14 +103,15 @@ class instance extends instance_skel {
 
 	processResponse(receivebuffer) {
 		if (this.config.log_responses) {
-			this.log('info', 'Response: ' + receivebuffer)
+			this.log('debug', 'Response: ' + receivebuffer)
 		}
+
 		let responses = receivebuffer.toString('utf8').split(/[\r\n]+/)
 		for (let response of responses) {
 			if (response.length > 0) {
 				let tokens = response.split(' ')
 				if (this.config.log_tokens) {
-					this.log('info', 'Tokens: ' + tokens)
+					console.log('Tokens: ' + tokens)
 				}
 				/*
 				ADDR 00
@@ -151,10 +159,12 @@ class instance extends instance_skel {
 
 	sendCommmand(cmd) {
 		if (cmd !== undefined) {
-			if (this.socket !== undefined && this.socket.connected) {
-				this.socket.send(cmd + '\r\n')
+			if (this.socket !== undefined && this.socket.isConnected) {
+				this.socket.send(cmd + '\r\n').catch((e) => {
+					this.log('debug', `Send failed: ${e?.message ?? e}`)
+				})
 			} else {
-				this.debug('Socket not connected :(')
+				this.log('debug', 'Socket not connected :(')
 			}
 		}
 	}
@@ -162,29 +172,37 @@ class instance extends instance_skel {
 	initPolling() {
 		// poll to pick up switch state from possible changes from controls on the unit
 		// changes usually come spontaneously, polling is just a backup mechanism
-		if (this.pollMixerTimer !== undefined) {
+		if (this.pollMixerTimer) {
 			clearInterval(this.pollMixerTimer)
 			delete this.pollMixerTimer
 		}
-		if (this.config.polled_data === true) {
-			if (this.pollMixerTimer === undefined) {
-				this.pollMixerTimer = setInterval(() => {
-					this.sendCommmand('EZG STA')
-				}, this.config.poll_interval)
-			}
+
+		if (this.config.polled_data) {
+			this.pollMixerTimer = setInterval(() => {
+				this.sendCommmand('EZG STA')
+			}, this.config.poll_interval)
 		}
 	}
 
-	updateMatrixVariables() {
-		this.CHOICES_INPUTS.forEach((input) => {
+	updateVariableValues() {
+		// This is not the most efficient to always update everything, but we have so few it isnt a problem
+		const variableValues = {}
+
+		for (const input of this.CHOICES_INPUTS) {
 			let list = ''
 			for (let key in this.outputRoute) {
 				if (this.outputRoute[key] == input.id) {
 					list += key
 				}
 			}
-			this.setVariable(`input_route${input.id}`, list)
-		})
+			variableValues[`input_route${input.id}`] = list
+		}
+
+		for (const output of this.CHOICES_OUTPUTS) {
+			variableValues[`output_route${output.id}`] = this.outputRoute[output.id]
+		}
+
+		this.setVariableValues(variableValues)
 	}
 
 	updateRoute(output, input) {
@@ -192,374 +210,32 @@ class instance extends instance_skel {
 			//all outputs
 			this.CHOICES_OUTPUTS.forEach((item) => {
 				this.outputRoute[item.id] = input
-				this.setVariable(`output_route${item.id}`, input)
 			})
 		} else {
 			this.outputRoute[output] = input
-			this.setVariable(`output_route${output}`, input)
 		}
-		this.updateMatrixVariables()
+
+		this.updateVariableValues()
 	}
 
 	initVariables() {
-		let variables = []
+		let variableDefinitions = []
 		this.CHOICES_INPUTS.forEach((item) => {
-			variables.push({
-				label: `Input ${item.id}`,
-				name: `input_route${item.id}`,
+			variableDefinitions.push({
+				variableId: `input_route${item.id}`,
+				name: `Input ${item.id}`,
 			})
 		})
 		this.CHOICES_OUTPUTS.forEach((item) => {
-			variables.push({
-				label: `Output ${item.id}`,
-				name: `output_route${item.id}`,
+			variableDefinitions.push({
+				variableId: `output_route${item.id}`,
+				name: `Output ${item.id}`,
 			})
 		})
-		this.setVariableDefinitions(variables)
-		this.CHOICES_OUTPUTS.forEach((output) => {
-			this.setVariable(`output_route${output.id}`, this.outputRoute[output.id])
-		})
-		this.updateMatrixVariables()
-	}
+		this.setVariableDefinitions(variableDefinitions)
 
-	config_fields() {
-		return [
-			{
-				type: 'text',
-				id: 'info',
-				width: 12,
-				label: 'Information',
-				value: 'This module will connect to an EZCOO MX44-HAS2 4x4 HDMI Matrix switch.',
-			},
-			{
-				type: 'textinput',
-				id: 'host',
-				label: 'IP Address',
-				width: 6,
-				default: '192.168.0.2',
-				regex: this.REGEX_IP,
-			},
-			{
-				type: 'textinput',
-				id: 'port',
-				label: 'IP Port',
-				width: 6,
-				default: '23',
-				regex: this.REGEX_PORT,
-			},
-			{
-				type: 'number',
-				id: 'poll_interval',
-				label: 'Polling Interval (ms)',
-				min: 300,
-				max: 300000,
-				default: 60000,
-				width: 8,
-			},
-			{
-				type: 'checkbox',
-				id: 'polled_data',
-				label: 'Use polled data from unit    :',
-				default: false,
-				width: 8,
-			},
-			{
-				type: 'checkbox',
-				id: 'log_responses',
-				label: 'Log returned data    :',
-				default: false,
-				width: 8,
-			},
-			{
-				type: 'checkbox',
-				id: 'log_tokens',
-				label: 'Log token data    :',
-				default: false,
-				width: 8,
-			},
-		]
-	}
-
-	initActions() {
-		let actions = {
-			select_input: {
-				label: 'Select Input',
-				options: [
-					{
-						type: 'dropdown',
-						label: 'Input Port',
-						id: 'input',
-						default: '1',
-						choices: this.CHOICES_INPUTS,
-					},
-				],
-			},
-			switch_output: {
-				label: 'Switch Output',
-				options: [
-					{
-						type: 'dropdown',
-						label: 'Output Port',
-						id: 'output',
-						default: '1',
-						choices: this.CHOICES_OUTPUTS,
-					},
-				],
-			},
-			input_output: {
-				label: 'Input to Output',
-				options: [
-					{
-						type: 'dropdown',
-						label: 'Input Port',
-						id: 'input',
-						default: '1',
-						choices: this.CHOICES_INPUTS,
-					},
-					{
-						type: 'dropdown',
-						label: 'Output Port',
-						id: 'output',
-						default: '1',
-						choices: this.CHOICES_OUTPUTS,
-					},
-				],
-			},
-			all: {
-				label: 'All outputs to selected input',
-				options: [
-					{
-						type: 'checkbox',
-						label: 'Use selected (or defined input)',
-						id: 'selected',
-						default: false,
-					},
-					{
-						type: 'dropdown',
-						label: 'Defined Input Port',
-						id: 'input',
-						default: '1',
-						choices: this.CHOICES_INPUTS,
-					},
-				],
-			},
-		}
-		this.setActions(actions)
-	}
-
-	action(action) {
-		let options = action.options
-		switch (action.action) {
-			case 'select_input':
-				this.selectedInput = options.input
-				break
-			case 'switch_output':
-				this.sendCommmand('EZS OUT' + options.output + ' VS IN' + this.selectedInput)
-				this.updateRoute(options.output, this.selectedInput)
-				break
-			case 'input_output':
-				this.sendCommmand('EZS OUT' + options.output + ' VS IN' + options.input)
-				this.updateRoute(options.output, options.input)
-				break
-			case 'all':
-				let myInput = this.selectedInput
-				if (!options.selected) {
-					myInput = options.input
-				}
-				this.sendCommmand('EZS OUT0 VS IN' + myInput)
-				for (let key in this.outputRoute) {
-					this.updateRoute(key, myInput)
-				}
-				break
-		} // note that internal status values are set immediately for feedback responsiveness and will be updated again when the unit reponds (hopefully with the same value!)
-		this.checkFeedbacks()
-	}
-
-	initFeedbacks() {
-		let feedbacks = {}
-
-		feedbacks.selected = {
-			type: 'boolean',
-			label: 'Status for input',
-			description: 'Show feedback selected input',
-			options: [
-				{
-					type: 'dropdown',
-					label: 'Input',
-					id: 'input',
-					default: '1',
-					choices: this.CHOICES_INPUTS,
-				},
-			],
-			style: {
-				color: this.rgb(0, 0, 0),
-				bgcolor: this.rgb(255, 0, 0),
-			},
-			callback: (feedback, bank) => {
-				let opt = feedback.options
-				if (this.selectedInput == opt.input) {
-					return true
-				} else {
-					return false
-				}
-			},
-		}
-		feedbacks.output = {
-			type: 'boolean',
-			label: 'Status for output',
-			description: 'Show feedback selected output',
-			options: [
-				{
-					type: 'dropdown',
-					label: 'Output',
-					id: 'output',
-					default: '1',
-					choices: this.CHOICES_OUTPUTS,
-				},
-			],
-			style: {
-				color: this.rgb(0, 0, 0),
-				bgcolor: this.rgb(0, 255, 0),
-			},
-			callback: (feedback, bank) => {
-				let opt = feedback.options
-				if (this.outputRoute[opt.output] == this.selectedInput) {
-					return true
-				} else {
-					return false
-				}
-			},
-		}
-		this.setFeedbackDefinitions(feedbacks)
-		this.checkFeedbacks()
-	}
-
-	initPresets() {
-		let presets = []
-
-		const aSelectPreset = (input, label) => {
-			return {
-				category: 'Select Input',
-				label: 'Select',
-				bank: {
-					style: 'text',
-					text: `${label}\\n> $(${this.config.label}:input_route${input})`,
-					size: 'auto',
-					color: this.rgb(255, 255, 255),
-					bgcolor: this.rgb(0, 0, 0),
-				},
-				actions: [
-					{
-						action: 'select_input',
-						options: {
-							input: input,
-						},
-					},
-				],
-				feedbacks: [
-					{
-						type: 'selected',
-						options: {
-							input: input,
-						},
-						style: {
-							color: this.rgb(0, 0, 0),
-							bgcolor: this.rgb(255, 0, 0),
-						},
-					},
-				],
-			}
-		}
-
-		const aSwitchPreset = (output, label) => {
-			return {
-				category: 'Switch Output',
-				label: 'Switch',
-				bank: {
-					style: 'text',
-					text: `${label}\\n< $(${this.config.label}:output_route${output})`,
-					size: 'auto',
-					color: this.rgb(255, 255, 255),
-					bgcolor: this.rgb(0, 0, 0),
-				},
-				actions: [
-					{
-						action: 'switch_output',
-						options: {
-							output: output,
-						},
-					},
-				],
-				feedbacks: [
-					{
-						type: 'output',
-						options: {
-							output: output,
-						},
-						style: {
-							color: this.rgb(0, 0, 0),
-							bgcolor: this.rgb(0, 255, 0),
-						},
-					},
-				],
-			}
-		}
-
-		const anAllPreset = (input, label) => {
-			return {
-				category: 'All',
-				label: 'All',
-				bank: {
-					style: 'text',
-					text: `All\\n${label}`,
-					size: '18',
-					color: this.rgb(255, 255, 255),
-					bgcolor: this.rgb(32, 0, 0),
-				},
-				actions: [
-					{
-						action: 'all',
-						options: {
-							selected: false,
-							input: input,
-						},
-					},
-				],
-			}
-		}
-
-		this.CHOICES_INPUTS.forEach((input) => {
-			presets.push(aSelectPreset(input.id, input.label))
-		})
-		this.CHOICES_OUTPUTS.forEach((output) => {
-			presets.push(aSwitchPreset(output.id, output.label))
-		})
-		this.CHOICES_INPUTS.forEach((input) => {
-			presets.push(anAllPreset(input.id, input.label))
-		})
-
-		presets.push({
-			category: 'In to Out',
-			label: 'In to Out',
-			bank: {
-				style: 'text',
-				text: 'IN1 to OUT4',
-				size: 'auto',
-				color: this.rgb(255, 255, 255),
-				bgcolor: this.rgb(0, 0, 0),
-			},
-			actions: [
-				{
-					action: 'input_output',
-					options: {
-						input: '1',
-						output: '4',
-					},
-				},
-			],
-		})
-
-		this.setPresetDefinitions(presets)
+		this.updateVariableValues()
 	}
 }
-exports = module.exports = instance
+
+runEntrypoint(EzcooMatrixInstance, [])
