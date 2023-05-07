@@ -71,7 +71,7 @@ class EzcooMatrixInstance extends InstanceBase {
 				reconnect_interval: 10000,
 				reconnect: true,
 			})
-			this.socket._socket.setNoDelay(false)
+			this.socket._socket.setNoDelay(true)
 
 			this.updateStatus(InstanceStatus.Connecting)
 
@@ -206,6 +206,8 @@ class EzcooMatrixInstance extends InstanceBase {
 	}
 
 	updateRoute(output, input) {
+		if (!this.socket.isConnected) return
+
 		if (output == 0) {
 			//all outputs
 			this.CHOICES_OUTPUTS.forEach((item) => {
