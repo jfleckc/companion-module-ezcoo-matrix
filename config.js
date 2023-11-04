@@ -14,7 +14,7 @@ export function getConfigFields() {
 			id: 'host',
 			label: 'IP Address',
 			width: 6,
-			default: '192.168.0.2',
+			default: '192.168.1.39',
 			regex: Regex.IP,
 		},
 		{
@@ -24,7 +24,7 @@ export function getConfigFields() {
 			width: 6,
 			min: 1,
 			max: 65535,
-			default: 23,
+			default: 10001,
 		},
 		{
 			type: 'number',
