@@ -2,7 +2,7 @@
 	"id": "kramer-vp-729",
 	"name": "kramer-vp-729",
 	"shortname": "kramer-vp-729",
-	"description": "Companion module for EZCOO HDMI Matrix",
+	"description": "Companion module for Kramer VP-729",
 	"version": "0.0.0",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-ezcoo-matrix.git",
